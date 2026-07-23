@@ -82,6 +82,7 @@ class Config:
     awesome_enabled: bool
     github_search_query: str
     github_search_pages: int
+    github_search_interval_seconds: float
     discovery_taxonomy_path: Path
     discovery_profiles: tuple[DiscoveryProfile, ...]
     hn_min_points: int
@@ -128,6 +129,7 @@ class Config:
             awesome_enabled=_bool("AWESOME_ENABLED", True),
             github_search_query=os.getenv("GITHUB_SEARCH_QUERY", "stars:>=1000"),
             github_search_pages=int(os.getenv("GITHUB_SEARCH_PAGES", "2")),
+            github_search_interval_seconds=float(os.getenv("GITHUB_SEARCH_INTERVAL_SECONDS", "2.1")),
             discovery_taxonomy_path=taxonomy_path,
             discovery_profiles=_load_discovery_profiles(taxonomy_path),
             hn_min_points=int(os.getenv("HN_MIN_POINTS", "50")),
