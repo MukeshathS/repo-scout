@@ -1,0 +1,2 @@
+"""RepoScout deterministic discovery pipeline."""
+
