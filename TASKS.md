@@ -1,6 +1,6 @@
 # RepoScout — Tasks
 
-**Status:** Deterministic v1 complete; taxonomy refinement next · **Date:** 2026-07-23
+**Status:** Deterministic v1 and core taxonomy refinement complete · **Date:** 2026-07-23
 
 Legend: `[x]` complete · `[~]` current · `[ ]` planned
 
@@ -16,12 +16,12 @@ Legend: `[x]` complete · `[~]` current · `[ ]` planned
 
 ## Milestone: taxonomy refinement
 
-- [~] Align discovery, screening, and approval behavior with the taxonomy requirements.
-- [ ] Add a migration for `license_status` (`verified_osi`, `unknown`, `non_osi`) and review flags.
-- [ ] Treat `NOASSERTION` as reviewable metadata, not an automatic hard rejection.
-- [ ] Canonicalize GitHub redirects/renames while preserving sources, snapshots, and state.
-- [ ] Add per-profile stage metrics and report them in CLI output.
-- [ ] Add tests for redirect merge, unknown licence, profile-level counts, and score recovery.
+- [x] Align discovery, screening, and approval behavior with the taxonomy requirements.
+- [x] Add a migration for `license_status` (`verified_osi`, `unknown`, `non_osi`) and review flags.
+- [x] Treat `NOASSERTION` as reviewable metadata, not an automatic hard rejection.
+- [x] Canonicalize GitHub redirects/renames while preserving sources, snapshots, and state.
+- [x] Add per-profile stage metrics and report them in CLI output.
+- [x] Add tests for redirect merge, unknown licence, profile-level counts, and score recovery.
 - [ ] Calibrate retrieval and approval thresholds using a small live run from each profile.
 - [ ] Run the taxonomy collection, review `master_repos.csv`, and tune TOML queries/verticals.
 

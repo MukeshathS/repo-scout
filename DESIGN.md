@@ -1,6 +1,6 @@
 # RepoScout — Design
 
-**Status:** Taxonomy-first deterministic v1; refinement implementation planned · **Date:** 2026-07-23
+**Status:** Taxonomy-first deterministic v1; quality refinement implemented · **Date:** 2026-07-23
 
 ## Overview
 
@@ -53,22 +53,22 @@ self-hosted operator tools, and finance agents.
 - **Enrichment:** writes GitHub facts plus a README summary and one star snapshot. It prioritizes
   rows without `enriched_at` so interrupted runs resume forward progress.
 - **Screening and scoring:** taxonomy retrieval settings admit a broad candidate pool. Approval is
-  a separate score decision. The refinement will introduce an explicit `license_status`
-  (`verified_osi`, `unknown`, `non_osi`) so GitHub `NOASSERTION` is reviewable rather than treated
-  as a confirmed rejection.
+  a separate score decision. `license_status` (`verified_osi`, `unknown`, `non_osi`) ensures
+  GitHub `NOASSERTION` is reviewable rather than treated as a confirmed rejection.
 - **Store/export:** SQLite is the source of truth. `master_repos.csv` is the full audit/review
   output; `content_candidates.csv` is the top approved, unexported batch; `rejects.csv` records
   every failure reason.
 
-## Data and state changes planned for refinement
+## Data and state refinement
 
 The existing `repos`, `sources`, `star_snapshots`, `rejections`, and reserved `classification`
-tables remain. The next migration will add:
+tables remain. The additive migration adds:
 
 - `canonical_full_name` redirect handling: update a redirected GitHub `full_name` without losing
   sources, snapshots, score, or status.
 - `license_status` and a non-terminal review flag so metadata gaps remain visible in master output.
-- Per-profile run counters for discovered, enriched, approved, and rejected candidates.
+- Per-profile run counts for discovered, enriched, approved, and rejected candidates, aggregated
+  from taxonomy provenance and reported by the CLI.
 
 Lifecycle remains `discovered → enriched → scored → approved → exported`; only definitive failures
 become `rejected`. Scoring configuration may move a score-rejected row back to `scored` or
