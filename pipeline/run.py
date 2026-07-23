@@ -62,6 +62,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    if not args.verbose:
+        logging.getLogger("httpx").setLevel(logging.WARNING)
     try:
         stats = run_stage(args.stage, Config.from_env(), args.source, args.limit)
     except (ValueError, OSError) as error:

@@ -148,7 +148,14 @@ class Store:
         ).fetchall()
 
     def repos_for_enrichment(self) -> list[sqlite3.Row]:
-        return self.conn.execute("SELECT * FROM repos WHERE status != 'rejected' ORDER BY full_name").fetchall()
+        # Work through never-enriched rows first so an interrupted run resumes instead
+        # of repeatedly spending its budget on the alphabetically first repositories.
+        return self.conn.execute(
+            """SELECT * FROM repos
+               WHERE status NOT IN ('rejected', 'exported')
+               ORDER BY CASE WHEN enriched_at IS NULL THEN 0 ELSE 1 END,
+                        enriched_at ASC, full_name ASC"""
+        ).fetchall()
 
     def set_score_outcome(self, full_name: str, score: float, approved: bool) -> None:
         """Refresh a non-final scoring decision (config changes may change approval)."""
