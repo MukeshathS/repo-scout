@@ -28,6 +28,9 @@ def discover(store: Store, cfg: Config, github: GitHubApi, source: str | None = 
             for candidate in collector.discover(cfg, github):
                 store.upsert_candidate(candidate)
                 stats["discovered"] += 1
+                source_key = candidate.source.split(":", 1)[1] if candidate.source.startswith("github_search:") else candidate.source
+                key = f"discovered:{source_key}"
+                stats[key] = stats.get(key, 0) + 1
                 if limit is not None and stats["discovered"] >= limit:
                     return stats
         except Exception:

@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS repos (
   full_name TEXT PRIMARY KEY, owner TEXT NOT NULL, name TEXT NOT NULL, url TEXT,
   description TEXT, homepage TEXT, stars INTEGER, forks INTEGER, open_issues INTEGER,
   pushed_at TEXT, created_at TEXT, license TEXT, license_is_osi INTEGER,
+  license_status TEXT NOT NULL DEFAULT 'unknown', review_flags TEXT NOT NULL DEFAULT '[]',
   language TEXT, topics TEXT NOT NULL DEFAULT '[]', readme_summary TEXT,
   is_archived INTEGER NOT NULL DEFAULT 0, is_mirror INTEGER NOT NULL DEFAULT 0,
   score REAL, status TEXT NOT NULL DEFAULT 'discovered', enriched_at TEXT,
@@ -56,7 +57,27 @@ class Store:
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA foreign_keys = ON")
         self.conn.executescript(SCHEMA)
+        self._migrate_schema()
         self.conn.commit()
+
+    def _migrate_schema(self) -> None:
+        """Apply additive migrations for databases created by earlier deterministic runs."""
+        columns = {row["name"] for row in self.conn.execute("PRAGMA table_info(repos)")}
+        if "license_status" not in columns:
+            self.conn.execute("ALTER TABLE repos ADD COLUMN license_status TEXT NOT NULL DEFAULT 'unknown'")
+        if "review_flags" not in columns:
+            self.conn.execute("ALTER TABLE repos ADD COLUMN review_flags TEXT NOT NULL DEFAULT '[]'")
+        self.conn.execute(
+            """UPDATE repos SET license_status=CASE
+                WHEN license_is_osi=1 THEN 'verified_osi'
+                WHEN license IS NULL OR license='' OR license='NOASSERTION' THEN 'unknown'
+                ELSE 'non_osi' END
+               WHERE license_status IS NULL OR license_status='unknown'"""
+        )
+        self.conn.execute(
+            """UPDATE repos SET review_flags='["license_unknown"]'
+               WHERE license_status='unknown' AND (review_flags IS NULL OR review_flags='[]')"""
+        )
 
     def close(self) -> None:
         self.conn.close()
@@ -86,7 +107,7 @@ class Store:
 
     def update_repo(self, full_name: str, fields: dict[str, Any]) -> None:
         allowed = {"owner", "name", "url", "description", "homepage", "stars", "forks", "open_issues", "pushed_at",
-                   "created_at", "license", "license_is_osi", "language", "topics", "readme_summary", "is_archived",
+                   "created_at", "license", "license_is_osi", "license_status", "review_flags", "language", "topics", "readme_summary", "is_archived",
                    "is_mirror", "score", "enriched_at", "approved_at", "exported_at"}
         unknown = set(fields) - allowed
         if unknown:
@@ -94,8 +115,9 @@ class Store:
         if not fields:
             return
         values = dict(fields)
-        if "topics" in values and not isinstance(values["topics"], str):
-            values["topics"] = json.dumps(values["topics"])
+        for field in ("topics", "review_flags"):
+            if field in values and not isinstance(values[field], str):
+                values[field] = json.dumps(values[field])
         assignments = ", ".join(f"{key}=?" for key in values)
         cursor = self.conn.execute(f"UPDATE repos SET {assignments} WHERE full_name=?", (*values.values(), full_name.lower()))
         if cursor.rowcount != 1:
@@ -140,6 +162,75 @@ class Store:
 
     def get_repo(self, full_name: str) -> sqlite3.Row | None:
         return self.conn.execute("SELECT * FROM repos WHERE full_name=?", (full_name.lower(),)).fetchone()
+
+    def taxonomy_profiles(self, full_name: str) -> list[str]:
+        rows = self.conn.execute(
+            "SELECT DISTINCT source FROM sources WHERE full_name=? AND source LIKE 'github_search:%' ORDER BY source",
+            (full_name.lower(),),
+        ).fetchall()
+        return [row["source"].split(":", 1)[1] for row in rows]
+
+    def canonicalize_repo(self, full_name: str, owner: str, name: str, url: str) -> str:
+        """Move a redirected repository to its canonical GitHub name without losing child rows."""
+        old_name = full_name.lower()
+        canonical_name = f"{owner}/{name}".lower()
+        if old_name == canonical_name:
+            return canonical_name
+        old = self.get_repo(old_name)
+        if not old:
+            raise KeyError(old_name)
+        existing = self.get_repo(canonical_name)
+        with self.conn:
+            if not existing:
+                columns = [row["name"] for row in self.conn.execute("PRAGMA table_info(repos)")]
+                values = [canonical_name if column == "full_name" else owner if column == "owner" else name if column == "name" else url if column == "url" else old[column] for column in columns]
+                self.conn.execute(
+                    f"INSERT INTO repos ({','.join(columns)}) VALUES ({','.join('?' for _ in columns)})", values
+                )
+            else:
+                merged_flags = sorted(set(json.loads(existing["review_flags"] or "[]")) | set(json.loads(old["review_flags"] or "[]")))
+                updates: dict[str, Any] = {"owner": owner, "name": name, "url": url, "review_flags": json.dumps(merged_flags)}
+                for column in ("description", "homepage", "stars", "forks", "open_issues", "pushed_at", "created_at", "license", "license_is_osi", "license_status", "language", "topics", "readme_summary", "is_archived", "is_mirror", "score", "enriched_at", "approved_at", "exported_at"):
+                    if existing[column] in (None, "", "[]") and old[column] not in (None, "", "[]"):
+                        updates[column] = old[column]
+                if (old["score"] or float("-inf")) > (existing["score"] or float("-inf")):
+                    updates["score"] = old["score"]
+                candidate_statuses = [status for status in (existing["status"], old["status"]) if status != "rejected"]
+                updates["status"] = "exported" if "exported" in candidate_statuses else (max(candidate_statuses, key=STATUS_RANK.get) if candidate_statuses else "rejected")
+                assignment = ", ".join(f"{column}=?" for column in updates)
+                self.conn.execute(f"UPDATE repos SET {assignment} WHERE full_name=?", (*updates.values(), canonical_name))
+
+            source_rows = self.conn.execute("SELECT source, source_url, context_text, discovered_at FROM sources WHERE full_name=?", (old_name,)).fetchall()
+            for source in source_rows:
+                self.conn.execute(
+                    """INSERT INTO sources(full_name, source, source_url, context_text, discovered_at) VALUES (?, ?, ?, ?, ?)
+                       ON CONFLICT(full_name, source, source_url) DO UPDATE SET
+                       context_text=excluded.context_text, discovered_at=excluded.discovered_at""",
+                    (canonical_name, source["source"], source["source_url"], source["context_text"], source["discovered_at"]),
+                )
+            snapshot_rows = self.conn.execute("SELECT day, stars FROM star_snapshots WHERE full_name=?", (old_name,)).fetchall()
+            for snapshot in snapshot_rows:
+                self.conn.execute(
+                    """INSERT INTO star_snapshots(full_name, day, stars) VALUES (?, ?, ?)
+                       ON CONFLICT(full_name, day) DO UPDATE SET stars=excluded.stars""",
+                    (canonical_name, snapshot["day"], snapshot["stars"]),
+                )
+            rejection_rows = self.conn.execute("SELECT stage, reason, rejected_at FROM rejections WHERE full_name=?", (old_name,)).fetchall()
+            for rejection in rejection_rows:
+                self.conn.execute(
+                    """INSERT INTO rejections(full_name, stage, reason, rejected_at) VALUES (?, ?, ?, ?)
+                       ON CONFLICT(full_name, stage, reason) DO UPDATE SET rejected_at=excluded.rejected_at""",
+                    (canonical_name, rejection["stage"], rejection["reason"], rejection["rejected_at"]),
+                )
+            if self.conn.execute("SELECT 1 FROM classification WHERE full_name=?", (canonical_name,)).fetchone():
+                self.conn.execute("DELETE FROM classification WHERE full_name=?", (old_name,))
+            else:
+                self.conn.execute("UPDATE classification SET full_name=? WHERE full_name=?", (canonical_name, old_name))
+            self.conn.execute("DELETE FROM sources WHERE full_name=?", (old_name,))
+            self.conn.execute("DELETE FROM star_snapshots WHERE full_name=?", (old_name,))
+            self.conn.execute("DELETE FROM rejections WHERE full_name=?", (old_name,))
+            self.conn.execute("DELETE FROM repos WHERE full_name=?", (old_name,))
+        return canonical_name
 
     def repos_for_status(self, statuses: Iterable[str]) -> list[sqlite3.Row]:
         values = tuple(statuses)
