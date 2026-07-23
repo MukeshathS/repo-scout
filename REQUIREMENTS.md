@@ -1,140 +1,91 @@
 # RepoScout — Requirements
 
-**Project:** RepoScout — an autonomous research agent that scouts *amazing* open-source
-GitHub repos across all domains, scores them for usefulness, and emits a clean, deduped,
-post-ready dataset.
-**Status:** Draft v1 · **Date:** 2026-07-23 · **Owner:** Mukesh (solo, build-in-public)
+**Status:** Taxonomy-first deterministic v1; quality-calibration changes planned · **Date:** 2026-07-23
 
-RepoScout is a **standalone project**. It owns discovery → enrichment → scoring →
-classification → storage. It does **not** post anything; it produces a dataset that a
-separate **workroom posting pipeline** consumes later (see §7, Integration contract).
+RepoScout is a local research pipeline for open-source tools in the **AI-agent ecosystem**:
+agent runtimes, agent-enabling tooling, AI applications, and high-utility self-hosted operator
+tools. It discovers, verifies, ranks, and exports candidates; posting and content generation are
+out of scope.
 
----
+## Goal
 
-## 1. Problem & goal
+Surface practical repositories with a clear user job, a credible paid-tool or workflow replacement
+story, and current source-verified metadata. The target is not only repositories labelled “AI”;
+it also includes privacy, local-first, document, automation, and infrastructure tools that make
+AI-agent operators more capable.
 
-High-engagement social content is built around lists of genuinely useful open-source repos
-("tools so good they shouldn't be free"). Finding those repos by hand doesn't scale.
-
-**Goal:** given nothing but a schedule, RepoScout continuously surfaces high-quality,
-currently-maintained, genuinely useful repos — enough to sustain **3–5 posts/day** — with
-all supporting metadata verified from source APIs (no fabricated stats).
-
----
-
-## 2. Actors
-
-- **Operator (Mukesh):** runs the agent, reviews/approves candidates, tunes thresholds.
-- **RepoScout agent:** the automated system described here.
-- **Downstream consumer:** the workroom posting pipeline (out of scope; consumes RepoScout output).
-
----
-
-## 3. Functional requirements
-
-Written as testable statements. IDs (`FR-n`) are referenced by DESIGN and TASKS.
+## Functional requirements
 
 ### Discovery
-- **FR-1** The system shall collect candidate repos from GitHub Trending, GitHub Search API,
-  Hacker News (Algolia), Reddit, and awesome-lists.
-- **FR-2** Each collector shall normalize output to `{owner, repo, source, source_url,
-  context_text, discovered_at}`.
-- **FR-3** The system shall be able to run any single collector in isolation (per-source toggles).
-- **FR-4** The system shall record provenance for every repo, keeping *all* sources it was
-  found in (a repo found on both HN and Reddit keeps both).
 
-### Enrichment
-- **FR-5** For each candidate the system shall fetch, via the GitHub API: stars, forks,
-  open issues, `pushed_at`, `created_at`, license, primary language, topics, description,
-  archived flag, and a README excerpt.
-- **FR-6** The system shall record a daily `stars` snapshot per repo to compute 30-day star
-  velocity (momentum).
-- **FR-7** Enrichment shall be idempotent and resumable — re-running updates existing rows,
-  never duplicates them.
+- **FR-1** Collect candidates from GitHub Search, Hacker News (Algolia), Reddit, and curated
+  awesome lists using documented APIs only.
+- **FR-2** GitHub Search shall be driven by `config/discovery_taxonomy.toml`, not a hard-coded
+  repository seed list. A profile has an ID, label, description, and editable GitHub query
+  fragments; profiles may be added, disabled, or expanded without Python changes.
+- **FR-3** The initial taxonomy shall cover: agent frameworks; MCP/protocols/tools; agent
+  reliability; agent automation; LLM interfaces; knowledge/retrieval; multimodal AI;
+  self-hosted operator tools; and finance agents.
+- **FR-4** A candidate shall be normalized to `{owner, repo, source, source_url, context_text,
+  discovered_at}`. GitHub taxonomy provenance shall retain the profile ID as
+  `github_search:<profile_id>`.
+- **FR-5** Each source and the GitHub collector may be run independently.
+- **FR-6** Preserve all provenance for a canonical repository, including every discovery profile
+  and external source that found it.
 
-### Scoring & filtering
-- **FR-8** The system shall drop any repo that fails a hard filter: stars < `MIN_STARS`,
-  `pushed_at` older than `MAX_STALE_DAYS`, missing/non-OSI license, archived, or empty README.
-- **FR-9** The system shall compute a configurable **usefulness score** combining stars,
-  30-day velocity, recency, "replaces a paid tool", and hook strength.
-- **FR-10** The system shall de-duplicate by canonical `owner/repo` (case-insensitive) and
-  flag likely mirrors (same homepage / near-identical name).
-- **FR-11** All thresholds and score weights shall be configurable without code changes.
+### Enrichment and screening
 
-### Classification (LLM)
-- **FR-12** For scored repos the system shall use Claude to produce: `domain`, one-line `hook`,
-  `replaces` (paid tool + est. $/mo or null), `value_prop`, and draft `caption` + `slide_copy`.
-- **FR-13** Classification output shall be structured (validated JSON), and the step shall be
-  re-runnable for a single repo or a batch.
+- **FR-7** Enrich each canonical candidate from the GitHub API with stars, forks, open issues,
+  activity/creation dates, licence metadata, language, topics, description, archived state, and a
+  README excerpt. Follow redirects and persist the canonical GitHub name.
+- **FR-8** Record daily star snapshots and compute 30-day velocity only when a 30-day baseline is
+  available.
+- **FR-9** Enrichment must be resumable, idempotent, and progress never reset after interruption.
+- **FR-10** Separate **retrieval** from **approval**. A taxonomy profile may use broad discovery
+  settings (initially 250 stars and 365 days) while approval remains score-based. Candidates that
+  miss an approval threshold stay auditable in `master_repos.csv` rather than disappearing.
+- **FR-11** Reject only definitive failures (archived, empty README, or confirmed unsuitable
+  licence). GitHub `NOASSERTION`/missing SPDX data must be represented as `license_unknown` for
+  review; it must not by itself erase a promising candidate.
+- **FR-12** De-duplicate by case-insensitive canonical owner/repo, flag likely mirrors, and retain
+  merged provenance after redirects.
 
-### Storage & output
-- **FR-14** The system shall persist everything in a local **SQLite** database (source of truth).
-- **FR-15** The system shall export CSVs: `master_repos.csv` (review), `content_candidates.csv`
-  (scored + classified, ready for the posting pipeline), and `rejects.csv` (audit trail).
-- **FR-16** Each repo shall carry a lifecycle `status`:
-  `discovered → enriched → scored → classified → approved → exported → (rejected)`.
-- **FR-17** The system shall expose a "daily batch" query returning the top-N unexported,
-  approved repos for a given date.
+### Ranking, output, and orchestration
 
-### Orchestration
-- **FR-18** A single entrypoint (`run.py`) shall run the full pipeline or any named stage.
-- **FR-19** The agent shall be schedulable (cron / GitHub Action) and safe to run repeatedly.
+- **FR-13** Compute a configurable deterministic score from stars, velocity, and activity
+  recency. Later LLM-derived usefulness signals must be additive, never replace API-sourced facts.
+- **FR-14** Store all pipeline data locally in SQLite and export `master_repos.csv`,
+  `content_candidates.csv`, and `rejects.csv`.
+- **FR-15** `master_repos.csv` shall include all enriched candidates and their status; the content
+  export shall contain the top-N approved, unexported candidates. Classification/caption fields
+  are intentionally absent until the later LLM phase.
+- **FR-16** Lifecycle states are `discovered → enriched → scored → approved → exported`, with
+  `rejected` for definitive failures. Re-scoring after configuration changes must be able to
+  recover previously score-rejected repositories.
+- **FR-17** `run.py` shall run `all`, `discover`, `enrich`, `score`, or `export`, safely and
+  repeatedly, with per-stage counts and non-fatal per-repository errors.
 
----
+## Non-functional requirements
 
-## 4. Non-functional requirements
+- **NFR-1:** Every published repository statistic is GitHub API-sourced.
+- **NFR-2:** Respect source rate limits with GitHub token auth, ETags/cache, bounded backoff, and
+  resumable progress.
+- **NFR-3:** Taxonomy edits and quality thresholds require configuration changes only.
+- **NFR-4:** The local Windows/Python 3.11+ workflow requires no server and never commits secrets.
+- **NFR-5:** Reddit remains optional until Data API access is approved.
 
-- **NFR-1 (Correctness):** every published stat is API-sourced; no invented numbers.
-- **NFR-2 (Rate limits):** respect GitHub (5k/hr auth), Reddit, HN limits; use auth tokens,
-  caching, conditional requests (ETags); back off on 403/429.
-- **NFR-3 (Idempotency):** all stages are re-runnable and converge to the same state.
-- **NFR-4 (Extensibility):** adding a new source = adding one collector module implementing a
-  common interface; no changes to enrich/score/store.
-- **NFR-5 (Cost):** LLM cost bounded — classify only repos that pass filters; cheap model for
-  bulk, premium model only for final copy polish.
-- **NFR-6 (Observability):** each run logs counts per stage (discovered / enriched / kept /
-  rejected / classified) and errors, without aborting the whole run on one bad repo.
-- **NFR-7 (Portability):** runs locally on Windows with Python 3.11+; no server required.
-- **NFR-8 (Secrets):** all credentials in `.env`, never committed.
+## Acceptance criteria for the taxonomy refinement
 
----
+1. Adding or disabling a TOML profile changes GitHub discovery without Python edits.
+2. Every GitHub-discovered row identifies the profile(s) that found it.
+3. A taxonomy run discovers candidates across all nine initial profiles, not merely globally
+   star-ranked repositories.
+4. Redirected repository names are canonicalized; `license_unknown` is auditable and does not
+   trigger an automatic rejection.
+5. A rerun resumes outstanding enrichment first and produces updated CSVs without duplicates.
 
-## 5. Constraints & assumptions
+## Deferred
 
-- Phase 1 uses **clean-API sources only** — no scraping.
-- Local-first: SQLite + CSV, no cloud DB.
-- Single operator; no multi-user/auth concerns yet.
-- Assumes valid GitHub + Reddit + Anthropic credentials are available.
-
----
-
-## 6. Out of scope (for RepoScout)
-
-- Posting / scheduling to any social platform (that's the workroom pipeline).
-- Graphic/carousel image generation.
-- X / LinkedIn / Instagram scraping (deferred; revisit only if a niche needs it).
-- Engagement analytics ingestion (the posting pipeline may feed this back later).
-
----
-
-## 7. Integration contract (how workroom consumes RepoScout)
-
-RepoScout's deliverable to the posting pipeline is stable and explicit:
-
-- **Primary:** `content_candidates.csv` — one row per approved repo with columns:
-  `full_name, url, domain, hook, replaces, value_prop, caption, slide_copy(JSON),
-  stars, stars_30d, pushed_at, license, score, status`.
-- **Alternative:** direct read of the SQLite DB (`repos` ⋈ `classification` where
-  `status='approved'`), or a `get_daily_batch(date, n)` function.
-- RepoScout sets `status='exported'` once handed off; the posting pipeline owns everything after.
-
----
-
-## 8. Acceptance criteria (MVP done =)
-
-1. `python run.py` produces a `master_repos.csv` of ranked, deduped, filtered repos from at
-   least GitHub + HN with zero fabricated stats. *(FR-1,5,8,9,10,14,15)*
-2. Re-running the pipeline does not create duplicates. *(FR-7,10, NFR-3)*
-3. Config change to `MIN_STARS` visibly changes the result set with no code edit. *(FR-11)*
-4. A classified batch yields caption + slide copy for the top repos. *(FR-12,13)*
-5. `content_candidates.csv` matches the §7 contract. *(FR-15, integration)*
+OpenRouter classification, content hooks, captions, slide copy, social posting, and engagement
+feedback remain later phases. The LLM will classify only taxonomy-qualified candidates and will not
+be used as a source of repository facts.
