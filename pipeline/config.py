@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+import tomllib
 
 from dotenv import load_dotenv
 
@@ -16,6 +17,53 @@ def _bool(name: str, default: bool) -> bool:
 def _csv(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
     value = os.getenv(name)
     return default if not value else tuple(item.strip() for item in value.split(",") if item.strip())
+
+
+@dataclass(frozen=True)
+class DiscoveryProfile:
+    """An independently tunable GitHub discovery niche."""
+    id: str
+    label: str
+    description: str
+    github_queries: tuple[str, ...]
+    min_stars: int
+    max_stale_days: int
+    pages: int
+    per_page: int
+    sort: str
+
+
+def _load_discovery_profiles(path: Path) -> tuple[DiscoveryProfile, ...]:
+    """Load editable discovery profiles; a missing file preserves legacy search."""
+    if not path.exists():
+        return ()
+    with path.open("rb") as handle:
+        document = tomllib.load(handle)
+    defaults = document.get("defaults", {})
+    profiles: list[DiscoveryProfile] = []
+    seen: set[str] = set()
+    for item in document.get("profiles", []):
+        if not item.get("enabled", True):
+            continue
+        profile_id = str(item["id"])
+        if profile_id in seen:
+            raise ValueError(f"Duplicate discovery profile: {profile_id}")
+        queries = tuple(str(query).strip() for query in item.get("github_queries", []) if str(query).strip())
+        if not queries:
+            raise ValueError(f"Discovery profile {profile_id!r} has no github_queries")
+        seen.add(profile_id)
+        profiles.append(DiscoveryProfile(
+            id=profile_id,
+            label=str(item.get("label", profile_id)),
+            description=str(item.get("description", "")),
+            github_queries=queries,
+            min_stars=int(item.get("min_stars", defaults.get("min_stars", 250))),
+            max_stale_days=int(item.get("max_stale_days", defaults.get("max_stale_days", 365))),
+            pages=int(item.get("pages", defaults.get("pages", 1))),
+            per_page=int(item.get("per_page", defaults.get("per_page", 50))),
+            sort=str(item.get("sort", defaults.get("sort", "updated"))),
+        ))
+    return tuple(profiles)
 
 
 @dataclass(frozen=True)
@@ -34,6 +82,8 @@ class Config:
     awesome_enabled: bool
     github_search_query: str
     github_search_pages: int
+    discovery_taxonomy_path: Path
+    discovery_profiles: tuple[DiscoveryProfile, ...]
     hn_min_points: int
     subreddits: tuple[str, ...]
     awesome_lists: tuple[str, ...]
@@ -60,6 +110,9 @@ class Config:
         root = root or Path(__file__).resolve().parent.parent
         load_dotenv(root / ".env")
         data_dir = root / "data"
+        taxonomy_path = Path(os.getenv("DISCOVERY_TAXONOMY_PATH", root / "config" / "discovery_taxonomy.toml"))
+        if not taxonomy_path.is_absolute():
+            taxonomy_path = root / taxonomy_path
         return cls(
             root=root,
             db_path=Path(os.getenv("DB_PATH", data_dir / "repo_scout.sqlite3")),
@@ -75,6 +128,8 @@ class Config:
             awesome_enabled=_bool("AWESOME_ENABLED", True),
             github_search_query=os.getenv("GITHUB_SEARCH_QUERY", "stars:>=1000"),
             github_search_pages=int(os.getenv("GITHUB_SEARCH_PAGES", "2")),
+            discovery_taxonomy_path=taxonomy_path,
+            discovery_profiles=_load_discovery_profiles(taxonomy_path),
             hn_min_points=int(os.getenv("HN_MIN_POINTS", "50")),
             subreddits=_csv("SUBREDDITS", ("selfhosted", "opensource", "coolgithubprojects", "LocalLLaMA", "SideProject", "DataHoarder")),
             awesome_lists=_csv("AWESOME_LISTS", ("sindresorhus/awesome",)),

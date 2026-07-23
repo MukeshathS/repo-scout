@@ -26,5 +26,8 @@ collectors (GitHub Search, HN, Reddit, awesome) → enrich (GitHub API) → scor
 Claude classification, captions, and slide copy are deliberately deferred. The v1
 `content_candidates.csv` contains only deterministic factual fields.
 
+GitHub discovery profiles live in `config/discovery_taxonomy.toml`. Add a profile or
+GitHub search query there to expand into a new AI-tooling niche without changing code.
+
 ## Stack
 Python 3.11+, SQLite (+ CSV exports), GitHub / HN / Reddit APIs, Anthropic Claude.

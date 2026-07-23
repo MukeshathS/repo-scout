@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import sys
 import types
+from dataclasses import replace
+
+from pipeline.config import DiscoveryProfile
 
 from pipeline.collectors.awesome import AwesomeCollector
 from pipeline.collectors.github_search import GitHubSearchCollector
@@ -30,6 +33,13 @@ def test_github_search_and_awesome_collectors_parse_candidates(cfg):
     awesome = list(AwesomeCollector().discover(cfg, github))
     assert search[0].full_name == "org/tool"
     assert {item.full_name for item in awesome} == {"acme/tool", "acme/another"}
+
+
+def test_github_search_retains_taxonomy_profile_provenance(cfg):
+    profile = DiscoveryProfile("agents", "AI agents", "Agent runtimes", ("topic:ai-agent",), 250, 365, 1, 50, "updated")
+    candidates = list(GitHubSearchCollector().discover(replace(cfg, discovery_profiles=(profile,)), FakeGitHub()))
+    assert candidates[0].source == "github_search:agents"
+    assert "Discovery profile: AI agents" in candidates[0].context_text
 
 
 def test_hn_collector_parses_algolia_payload(monkeypatch, cfg):

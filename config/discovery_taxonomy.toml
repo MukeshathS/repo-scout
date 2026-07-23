@@ -1,0 +1,63 @@
+# RepoScout discovery taxonomy. Add a profile or query here to expand discovery;
+# no collector-code change is required. Queries use GitHub repository-search syntax.
+
+[defaults]
+min_stars = 250
+max_stale_days = 365
+pages = 1
+per_page = 50
+sort = "updated"
+
+[[profiles]]
+id = "agent_frameworks"
+label = "AI agent frameworks"
+description = "General-purpose single- and multi-agent runtimes."
+github_queries = ["topic:ai-agent", "topic:multi-agent", "\"agent framework\"", "\"agentic workflow\""]
+
+[[profiles]]
+id = "agent_protocols"
+label = "Agent protocols and tools"
+description = "MCP, tool-calling, skills, and integrations that make agents useful."
+github_queries = ["topic:mcp", "\"model context protocol\"", "\"tool calling\"", "\"agent skills\""]
+
+[[profiles]]
+id = "agent_reliability"
+label = "Agent reliability"
+description = "Memory, evaluation, observability, and safety layers for production agents."
+github_queries = ["\"agent memory\"", "\"agent evaluation\"", "\"agent observability\"", "\"llm guardrails\""]
+
+[[profiles]]
+id = "agent_automation"
+label = "Agent automation"
+description = "Browser, email, and workflow automation built for AI agents."
+github_queries = ["\"browser automation\"", "\"email agent\"", "\"workflow automation\"", "topic:browser-automation"]
+
+[[profiles]]
+id = "llm_interfaces"
+label = "LLM interfaces and local runtimes"
+description = "Self-hosted model interfaces, local LLM tooling, and AI companions."
+github_queries = ["\"self-hosted chat\"", "\"local llm\"", "topic:llm", "\"ai companion\""]
+
+[[profiles]]
+id = "knowledge_retrieval"
+label = "Knowledge and retrieval"
+description = "RAG, retrieval, document intelligence, and personal knowledge tools."
+github_queries = ["topic:rag", "topic:vector-database", "\"document intelligence\"", "\"personal knowledge\""]
+
+[[profiles]]
+id = "multimodal_ai"
+label = "Multimodal AI creation"
+description = "Voice, image, video, and multimodal generation tools."
+github_queries = ["topic:generative-ai", "\"ai video\"", "\"text to video\"", "\"voice ai\""]
+
+[[profiles]]
+id = "self_hosted_operator_tools"
+label = "Self-hosted operator tools"
+description = "Privacy-first and local-first tools that support agent operators and power users."
+github_queries = ["topic:self-hosted", "\"local-first\"", "\"privacy-first\"", "\"document management\""]
+
+[[profiles]]
+id = "finance_agents"
+label = "Finance agents"
+description = "AI-assisted financial research, trading, and analysis workflows."
+github_queries = ["topic:ai-agent topic:finance", "\"trading agent\"", "\"multi-agent trading\"", "\"financial research\""]
